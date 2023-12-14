@@ -25,6 +25,8 @@ import (
 	"akvorado/common/reporter"
 	"akvorado/inlet/routing/provider"
 	"akvorado/inlet/routing/provider/bmp"
+
+	"github.com/dgraph-io/ristretto"
 )
 
 var (
@@ -55,6 +57,7 @@ type Provider struct {
 	instances     map[string]*RISInstanceRuntime
 	routers       map[netip.Addr][]*RISInstanceRuntime
 	mu            sync.RWMutex
+	cache *ristretto.Cache[string, provider.LookupResult]
 }
 
 // Dependencies define the dependencies of the BioRIS Provider.
@@ -68,6 +71,17 @@ func (configuration Configuration) New(r *reporter.Reporter, dependencies Depend
 		config:    configuration,
 		instances: make(map[string]*RISInstanceRuntime),
 		routers:   make(map[netip.Addr][]*RISInstanceRuntime),
+	}
+	var err error
+	p.cache, err = ristretto.NewCache[string, provider.LookupResult](&ristretto.Config[string, provider.LookupResult]{
+		NumCounters: 1e7,
+		MaxCost: 1000000,
+		BufferItems: 64,
+		Metrics: true,
+		IgnoreInternalCost: true,
+	})
+	if err != nil {
+		return nil, err
 	}
 	p.clientMetrics = grpc_prometheus.NewClientMetrics()
 	p.initMetrics()
@@ -200,6 +214,10 @@ func (p *Provider) Lookup(ctx context.Context, ip netip.Addr, _ netip.Addr, agen
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
+	cacheKey := fmt.Sprintf("%s-%s", ip.String(), agent.String())
+	if val, has := p.cache.Get(cacheKey); has {
+		return val, nil
+	}
 	lpmRes, lpmErr := p.lookupLPM(ctx, ip, agent)
 
 	if lpmErr != nil {
@@ -209,6 +227,8 @@ func (p *Provider) Lookup(ctx context.Context, ip netip.Addr, _ netip.Addr, agen
 	if err != nil {
 		return bmp.LookupResult{}, err
 	}
+	p.cache.Set(cacheKey, r, 1)
+	fmt.Println(p.cache.Metrics.Hits())
 	return r, nil
 }
 

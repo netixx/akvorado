@@ -86,8 +86,12 @@ github.com/cpuguy83/go-md2man/v2 v2.0.3/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46t
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/dgraph-io/ristretto v0.1.2-0.20231211181529-231c676eee33 h1:MGhc+7eGTStN8+3FiRDyUhxqeTbNxK66dS9AC7gVSVo=
+github.com/dgraph-io/ristretto v0.1.2-0.20231211181529-231c676eee33/go.mod h1:swkazRqnUf1N62d0Nutz7KIj2UKqsm/H8tD0nBJAXqM=
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f h1:lO4WD4F/rVNCu3HqELle0jiPLLBs70cWOduZpkS1E78=
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f/go.mod h1:cuUVRXasLTGF7a8hSLbxyZXjz+1KgoB3wDUb6vlszIc=
+github.com/dgryski/go-tinylfu v0.0.0-20230408121034-c8e5d79bbb04 h1:KfJuUjcn6CWRMluEAcZb/zqhml0P6rsxAHtSTetvqQ8=
+github.com/dgryski/go-tinylfu v0.0.0-20230408121034-c8e5d79bbb04/go.mod h1:f50PMO4C1x0o341KZt49XtmTpf4LP/JXjxzWuRQEMHw=
 github.com/dlclark/regexp2 v1.4.0 h1:F1rxgk7p4uKjwIQxBs9oAXe5CqrXlCduYEJvrF4u93E=
 github.com/dlclark/regexp2 v1.4.0/go.mod h1:2pZnwuY/m+8K6iRw6wQdMtk+rH5tNGR1i55kozfMjCc=
 github.com/docker/distribution v2.8.2+incompatible h1:T3de5rq0dB1j30rp0sA2rER+m322EBzniBPB6ZIzuh8=
