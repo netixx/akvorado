@@ -4,6 +4,7 @@
 package clickhouse
 
 import (
+	"akvorado/common/remotedatasourcefetcher"
 	"context"
 	"fmt"
 	"net"
@@ -78,7 +79,7 @@ func TestNetworkSources(t *testing.T) {
 	config := DefaultConfiguration()
 	config.SkipMigrations = true
 	config.NetworkSourcesTimeout = 10 * time.Millisecond
-	config.NetworkSources = map[string]NetworkSource{
+	config.NetworkSources = map[string]remotedatasourcefetcher.RemoteDataSource{
 		"amazon": {
 			URL:    fmt.Sprintf("http://%s/amazon.json", address),
 			Method: "GET",
@@ -87,7 +88,7 @@ func TestNetworkSources(t *testing.T) {
 			},
 			Timeout:  20 * time.Millisecond,
 			Interval: 100 * time.Millisecond,
-			Transform: MustParseTransformQuery(`
+			Transform: remotedatasourcefetcher.MustParseTransformQuery(`
 (.prefixes + .ipv6_prefixes)[] |
 { prefix: (.ip_prefix // .ipv6_prefix), tenant: "amazon", region: .region, role: .service|ascii_downcase }
 `),
@@ -127,9 +128,9 @@ func TestNetworkSources(t *testing.T) {
 		},
 	})
 
-	gotMetrics := r.GetMetrics("akvorado_orchestrator_clickhouse_network_source_networks_")
+	gotMetrics := r.GetMetrics("akvorado_common_remotedatasourcefetcher_data_")
 	expectedMetrics := map[string]string{
-		`total{source="amazon"}`: "3",
+		`total{source="amazon",type="network_source"}`: "3",
 	}
 	if diff := helpers.Diff(gotMetrics, expectedMetrics); diff != "" {
 		t.Fatalf("Metrics (-got, +want):\n%s", diff)
