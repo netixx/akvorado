@@ -4,9 +4,10 @@
 package clickhouse
 
 import (
-	"akvorado/common/remotedatasourcefetcher"
 	"context"
 	"net/netip"
+
+	"akvorado/common/remotedatasourcefetcher"
 )
 
 type externalNetworkAttributes struct {

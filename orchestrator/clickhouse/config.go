@@ -4,9 +4,10 @@
 package clickhouse
 
 import (
-	"akvorado/common/remotedatasourcefetcher"
 	"reflect"
 	"time"
+
+	"akvorado/common/remotedatasourcefetcher"
 
 	"akvorado/common/clickhousedb"
 	"akvorado/common/helpers"

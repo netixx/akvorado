@@ -4,10 +4,11 @@
 package static
 
 import (
+	"time"
+
 	"akvorado/common/helpers"
 	"akvorado/common/remotedatasourcefetcher"
 	"akvorado/inlet/metadata/provider"
-	"time"
 )
 
 // Configuration describes the configuration for the static provider

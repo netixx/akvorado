@@ -4,13 +4,14 @@
 package clickhouse
 
 import (
-	"akvorado/common/remotedatasourcefetcher"
 	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"testing"
 	"time"
+
+	"akvorado/common/remotedatasourcefetcher"
 
 	"akvorado/common/daemon"
 	"akvorado/common/helpers"

@@ -1,9 +1,11 @@
 package remotedatasourcefetcher
 
 import (
-	"akvorado/common/helpers"
-	"github.com/itchyny/gojq"
 	"time"
+
+	"github.com/itchyny/gojq"
+
+	"akvorado/common/helpers"
 )
 
 // RemoteDataSource defines a remote network definition.

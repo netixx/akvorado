@@ -1,19 +1,21 @@
 package remotedatasourcefetcher
 
 import (
-	"akvorado/common/reporter"
 	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"sync"
+	"time"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/itchyny/gojq"
 	"github.com/mitchellh/mapstructure"
 	"gopkg.in/tomb.v2"
-	"net/http"
-	"sync"
-	"time"
+
+	"akvorado/common/reporter"
 )
 
 type Provider interface {

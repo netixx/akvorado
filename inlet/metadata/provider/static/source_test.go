@@ -1,10 +1,6 @@
 package static
 
 import (
-	"akvorado/common/helpers"
-	"akvorado/common/remotedatasourcefetcher"
-	"akvorado/common/reporter"
-	"akvorado/inlet/metadata/provider"
 	"context"
 	"fmt"
 	"net"
@@ -12,6 +8,11 @@ import (
 	"net/netip"
 	"testing"
 	"time"
+
+	"akvorado/common/helpers"
+	"akvorado/common/remotedatasourcefetcher"
+	"akvorado/common/reporter"
+	"akvorado/inlet/metadata/provider"
 )
 
 func TestRemoteExporterSources(t *testing.T) {
@@ -38,13 +39,14 @@ func TestRemoteExporterSources(t *testing.T) {
           "description": "default",
           "speed": 100
       },
-      "ifindexes": {
-        "1": {
+      "interfaces": [
+				{
+					"ifindex": 1,
           "name": "iface1",
           "description": "foo:desc",
           "speed": 1000
         }
-      }
+      ]
     }
   ]
 }

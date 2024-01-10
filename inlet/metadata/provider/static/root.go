@@ -6,11 +6,12 @@
 package static
 
 import (
-	"akvorado/common/helpers"
-	"akvorado/common/remotedatasourcefetcher"
 	"context"
 	"fmt"
 	"sync"
+
+	"akvorado/common/helpers"
+	"akvorado/common/remotedatasourcefetcher"
 
 	"akvorado/common/reporter"
 	"akvorado/inlet/metadata/provider"

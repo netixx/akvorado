@@ -1,12 +1,14 @@
 package remotedatasourcefetcher
 
 import (
-	"akvorado/common/helpers"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"akvorado/common/helpers"
 )
 
 func TestRemoteDataSourceDecode(t *testing.T) {

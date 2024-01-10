@@ -5,11 +5,12 @@
 package clickhouse
 
 import (
-	"akvorado/common/remotedatasourcefetcher"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
+
+	"akvorado/common/remotedatasourcefetcher"
 
 	"github.com/cenkalti/backoff/v4"
 	"gopkg.in/tomb.v2"

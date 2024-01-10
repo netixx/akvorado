@@ -4,11 +4,12 @@
 package static
 
 import (
+	"testing"
+	"time"
+
 	"akvorado/common/helpers"
 	"akvorado/common/remotedatasourcefetcher"
 	"akvorado/inlet/metadata/provider"
-	"testing"
-	"time"
 )
 
 func TestValidation(t *testing.T) {

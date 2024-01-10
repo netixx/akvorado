@@ -5,9 +5,10 @@ package clickhouse
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"reflect"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 
 	"akvorado/common/helpers"
 )
