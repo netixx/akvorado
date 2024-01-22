@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -123,11 +124,14 @@ func (c *Component) graphSankeyHandlerFunc(gc *gin.Context) {
 		Xps        float64  `ch:"xps"`
 		Dimensions []string `ch:"dimensions"`
 	}{}
+	queryStart := time.Now()
 	if err := c.d.ClickHouseDB.Conn.Select(ctx, &results, sqlQuery); err != nil {
 		c.r.Err(err).Str("query", sqlQuery).Msg("unable to query database")
 		gc.JSON(http.StatusInternalServerError, gin.H{"message": "Unable to query database."})
 		return
 	}
+
+	c.metrics.clickHouseQueryTimes.WithLabelValues("").Observe(float64(time.Now().Sub(queryStart).Milliseconds()))
 
 	// Prepare output
 	output := graphSankeyHandlerOutput{

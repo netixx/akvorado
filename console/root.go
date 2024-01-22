@@ -39,6 +39,7 @@ type Component struct {
 
 	metrics struct {
 		clickhouseQueries *reporter.CounterVec
+		clickHouseQueryTimes *reporter.SummaryVec
 	}
 }
 
@@ -75,6 +76,14 @@ func New(r *reporter.Reporter, config Configuration, dependencies Dependencies) 
 			Name: "clickhouse_queries_total",
 			Help: "Number of requests to ClickHouse.",
 		}, []string{"table"},
+	)
+	c.metrics.clickHouseQueryTimes = c.r.SummaryVec(
+		reporter.SummaryOpts{
+			Name: "clickhouse_query_time_ms",
+			Help: "Summary of time taken for queries to clickhouse",
+			Objectives: map[float64]float64{0.5: 0, 0.9: 0, 0.95: 0, 0.99: 0},
+		},
+		[]string{"table"},
 	)
 	return &c, nil
 }
