@@ -71,7 +71,8 @@ func (configuration Configuration) New(r *reporter.Reporter, dependencies Depend
 	ribComponent, err := configuration.RIB.New(
 		r,
 		rib.Dependencies{
-			Clock: dependencies.Clock,
+			Clock:  dependencies.Clock,
+			Daemon: dependencies.Daemon,
 		},
 	)
 	if err != nil {
@@ -125,7 +126,7 @@ func (p *Provider) Start() error {
 		}
 	})
 
-	return nil
+	return p.rib.Start()
 }
 
 // Dial dials a RIS instance.
@@ -280,18 +281,22 @@ func (p *Provider) ObserveRIB(exporterAddress netip.Addr, ipv6 bool) error {
 	if err != nil {
 		return err
 	}
+	p.metrics.runningObserveRIB.WithLabelValues(ris.config.GRPCAddr).Add(1)
 
 	p.observeSubscriptions[subscriptionKey] = cli
 
+	exporterStr := exporterAddress.String()
 	p.rib.AddPeer(exporterAddress)
 	p.t.Go(func() error {
+		p.r.Info().Msgf("starting ObserveRIB subscription for %s", exporterStr)
 		defer func() {
+			p.metrics.runningObserveRIB.WithLabelValues(ris.config.GRPCAddr).Add(-1)
 			// TODO: clean rib after timeout when the subscription ends
 		}()
 		for {
 			select {
 			case <-p.t.Dying():
-				return nil
+				return cli.CloseSend()
 			default:
 			}
 			update, err := cli.Recv()
@@ -303,6 +308,7 @@ func (p *Provider) ObserveRIB(exporterAddress netip.Addr, ipv6 bool) error {
 			if err != nil {
 				return err
 			}
+			p.metrics.streamedUpdates.WithLabelValues(ris.config.GRPCAddr, exporterStr).Inc()
 			for _, path := range route.Paths {
 				if path.GetType() != api.Path_BGP {
 					continue
@@ -354,6 +360,9 @@ func (p *Provider) Stop() error {
 		}
 		p.r.Info().Msg("BioRIS provider stopped")
 	}()
+	if err := p.rib.Stop(); err != nil {
+		return err
+	}
 	p.r.Info().Msg("stopping BioRIS provider")
 	p.t.Kill(nil)
 	return p.t.Wait()
