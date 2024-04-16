@@ -7,6 +7,7 @@ import (
 	"akvorado/common/helpers"
 	"akvorado/inlet/routing/provider"
 	"akvorado/inlet/routing/provider/bioris"
+	biorisobserve "akvorado/inlet/routing/provider/bioris_observe"
 	"akvorado/inlet/routing/provider/bmp"
 )
 
@@ -38,8 +39,9 @@ func (pc ProviderConfiguration) MarshalJSON() ([]byte, error) {
 }
 
 var providers = map[string](func() provider.Configuration){
-	"bmp":    bmp.DefaultConfiguration,
-	"bioris": bioris.DefaultConfiguration,
+	"bmp":            bmp.DefaultConfiguration,
+	"bioris":         bioris.DefaultConfiguration,
+	"bioris-observe": biorisobserve.DefaultConfiguration,
 }
 
 func init() {
