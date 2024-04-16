@@ -6,15 +6,10 @@ package rib
 import "akvorado/common/reporter"
 
 type metrics struct {
-	openedConnections    *reporter.CounterVec
-	closedConnections    *reporter.CounterVec
 	peers                *reporter.GaugeVec
 	routes               *reporter.GaugeVec
 	ignoredNlri          *reporter.CounterVec
-	messages             *reporter.CounterVec
-	errors               *reporter.CounterVec
 	ignored              *reporter.CounterVec
-	panics               *reporter.CounterVec
 	locked               *reporter.SummaryVec
 	peerRemovalDone      *reporter.CounterVec
 	peerRemovalPartial   *reporter.CounterVec
@@ -23,31 +18,17 @@ type metrics struct {
 
 // initMetrics initialize the metrics for the BMP component.
 func (p *Provider) initMetrics() {
-	p.metrics.openedConnections = p.r.CounterVec(
-		reporter.CounterOpts{
-			Name: "opened_connections_total",
-			Help: "Number of opened connections.",
-		},
-		[]string{"exporter"},
-	)
-	p.metrics.closedConnections = p.r.CounterVec(
-		reporter.CounterOpts{
-			Name: "closed_connections_total",
-			Help: "Number of closed connections.",
-		},
-		[]string{"exporter"},
-	)
 	p.metrics.peers = p.r.GaugeVec(
 		reporter.GaugeOpts{
 			Name: "peers_total",
-			Help: "Number of peers up.",
+			Help: "Number of peers in RIB.",
 		},
 		[]string{"exporter"},
 	)
 	p.metrics.routes = p.r.GaugeVec(
 		reporter.GaugeOpts{
 			Name: "routes_total",
-			Help: "Number of routes up.",
+			Help: "Number of routes in RIB.",
 		},
 		[]string{"exporter"},
 	)
@@ -57,34 +38,6 @@ func (p *Provider) initMetrics() {
 			Help: "Number ignored MP NLRI received.",
 		},
 		[]string{"exporter", "type"},
-	)
-	p.metrics.messages = p.r.CounterVec(
-		reporter.CounterOpts{
-			Name: "received_messages_total",
-			Help: "Number of BMP messages received.",
-		},
-		[]string{"exporter", "type"},
-	)
-	p.metrics.errors = p.r.CounterVec(
-		reporter.CounterOpts{
-			Name: "errors_total",
-			Help: "Number of fatal errors while processing BMP messages.",
-		},
-		[]string{"exporter", "error"},
-	)
-	p.metrics.ignored = p.r.CounterVec(
-		reporter.CounterOpts{
-			Name: "ignored_updates_total",
-			Help: "Number of ignored BGP updates.",
-		},
-		[]string{"exporter", "reason", "error"},
-	)
-	p.metrics.panics = p.r.CounterVec(
-		reporter.CounterOpts{
-			Name: "panics_total",
-			Help: "Number of fatal errors while processing BMP messages.",
-		},
-		[]string{"exporter"},
 	)
 	p.metrics.locked = p.r.SummaryVec(
 		reporter.SummaryOpts{
