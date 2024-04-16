@@ -1,20 +1,24 @@
 package rib
 
 import (
-	"sync"
+	"akvorado/common/daemon"
+	"akvorado/common/helpers/sync"
 
 	"akvorado/common/reporter"
 
 	"github.com/benbjohnson/clock"
+	"gopkg.in/tomb.v2"
 )
 
 // Dependencies define the dependencies of the RIB component.
 type Dependencies struct {
-	Clock clock.Clock
+	Clock  clock.Clock
+	Daemon daemon.Component
 }
 
 type Provider struct {
 	r           *reporter.Reporter
+	t           tomb.Tomb
 	metrics     metrics
 	d           *Dependencies
 	config      Configuration
@@ -49,6 +53,8 @@ func (configuration Configuration) New(r *reporter.Reporter, dependencies Depend
 		}
 	}
 
+	p.d.Daemon.Track(&p.t, "inlet/rib")
+
 	p.initMetrics()
 	return &p, nil
 }
@@ -56,6 +62,7 @@ func (configuration Configuration) New(r *reporter.Reporter, dependencies Depend
 // Start starts the RIB provider.
 func (p *Provider) Start() error {
 	p.r.Info().Msg("starting RIB provider")
+	p.t.Go(p.peerRemovalWorker)
 	return nil
 }
 
@@ -65,5 +72,6 @@ func (p *Provider) Stop() error {
 		close(p.peerRemovalChan)
 		p.r.Info().Msg("RIB component stopped")
 	}()
-	return nil
+	p.t.Kill(nil)
+	return p.t.Wait()
 }

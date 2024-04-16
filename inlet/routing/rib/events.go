@@ -30,6 +30,7 @@ func (p *Provider) AddPeer(pkey PeerKey) *PeerInfo {
 	pinfo := &PeerInfo{
 		reference: p.lastPeerReference,
 	}
+	p.metrics.peers.WithLabelValues(pkey.String()).Inc()
 	p.peers[pkey] = pinfo
 	return pinfo
 }
@@ -72,7 +73,6 @@ func (p *Provider) AddRoute(
 		// We may have missed the peer down notification?
 		p.r.Info().Msgf("received route monitoring from exporter %s for peer %s, but no peer up",
 			exporterStr, exporterStr)
-		p.metrics.peers.WithLabelValues(exporterStr).Inc()
 		pinfo = p.AddPeer(pkey)
 	}
 	p.mu.RUnlock()

@@ -8,6 +8,8 @@ import "akvorado/common/reporter"
 type metrics struct {
 	risUp                    *reporter.GaugeVec
 	knownRouters             *reporter.GaugeVec
+	runningObserveRIB        *reporter.GaugeVec
+	streamedUpdates          *reporter.CounterVec
 	routerChosenFallback     *reporter.CounterVec
 	routerChosenAgentIDMatch *reporter.CounterVec
 }
@@ -28,6 +30,20 @@ func (p *Provider) initMetrics() {
 			Help: "Number of known routers per RIS.",
 		},
 		[]string{"ris"},
+	)
+	p.metrics.runningObserveRIB = p.r.GaugeVec(
+		reporter.GaugeOpts{
+			Name: "observe_rib_total",
+			Help: "Number currently running observeRIB subscriptions.",
+		},
+		[]string{"ris"},
+	)
+	p.metrics.streamedUpdates = p.r.CounterVec(
+		reporter.CounterOpts{
+			Name: "update_total",
+			Help: "Cumulative count of all updates received from ris instance for a given router.",
+		},
+		[]string{"ris", "router"},
 	)
 	p.metrics.routerChosenAgentIDMatch = p.r.CounterVec(
 		reporter.CounterOpts{
