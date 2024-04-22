@@ -30,6 +30,11 @@ func (p *Provider) AddPeer(pkey PeerKey) *PeerInfo {
 	pinfo := &PeerInfo{
 		reference: p.lastPeerReference,
 	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if pinfo, has := p.peers[pkey]; has {
+		return pinfo
+	}
 	p.metrics.peers.WithLabelValues(pkey.String()).Inc()
 	p.peers[pkey] = pinfo
 	return pinfo
@@ -62,12 +67,18 @@ func (p *Provider) AddRoute(
 	plen int,
 	rta RouteAttributes,
 	nh netip.Addr,
-) int {
+) (cnt int) {
+	defer func() {
+		p.metrics.routes.WithLabelValues(pkey.String()).Add(float64(cnt))
+	}()
+
 	if !p.isAcceptedRD(rd) {
+		p.metrics.ignored.WithLabelValues(pkey.String(), "rd", "").Inc()
 		return 0
 	}
 	p.mu.RLock()
 	pinfo, ok := p.peers[pkey]
+	p.mu.RUnlock()
 	if !ok {
 		exporterStr := pkey.Unmap().String()
 		// We may have missed the peer down notification?
@@ -75,8 +86,8 @@ func (p *Provider) AddRoute(
 			exporterStr, exporterStr)
 		pinfo = p.AddPeer(pkey)
 	}
-	p.mu.RUnlock()
-
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return p.rib.addPrefix(prefix, plen, route{
 		peer: pinfo.reference,
 		nlri: p.rib.nlris.Put(nlri{
@@ -97,7 +108,10 @@ func (p *Provider) RemoveRoute(
 	pathID uint32,
 	prefix net.IP,
 	plen int,
-) int {
+) (cnt int) {
+	defer func() {
+		p.metrics.routes.WithLabelValues(pkey.String()).Sub(float64(cnt))
+	}()
 	p.mu.RLock()
 	pinfo, ok := p.peers[pkey]
 	p.mu.RUnlock()
@@ -105,6 +119,8 @@ func (p *Provider) RemoveRoute(
 		return 0
 	}
 
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	pf, _ := netip.AddrFromSlice(prefix)
 	if nlriRef, ok := p.rib.nlris.Ref(nlri{
 		family: bgp.AfiSafiToRouteFamily(afi, safi),

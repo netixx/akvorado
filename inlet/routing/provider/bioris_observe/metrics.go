@@ -10,8 +10,7 @@ type metrics struct {
 	knownRouters             *reporter.GaugeVec
 	runningObserveRIB        *reporter.GaugeVec
 	streamedUpdates          *reporter.CounterVec
-	routerChosenFallback     *reporter.CounterVec
-	routerChosenAgentIDMatch *reporter.CounterVec
+	streamedPaths         	*reporter.CounterVec
 }
 
 // initMetrics initialize the metrics for the BMP component.
@@ -45,17 +44,10 @@ func (p *Provider) initMetrics() {
 		},
 		[]string{"ris", "router"},
 	)
-	p.metrics.routerChosenAgentIDMatch = p.r.CounterVec(
+	p.metrics.streamedPaths = p.r.CounterVec(
 		reporter.CounterOpts{
-			Name: "router_agentid_requests_total",
-			Help: "Number of times the router/ris combination was returned with an exact match of the agent ID.",
-		},
-		[]string{"ris", "router"},
-	)
-	p.metrics.routerChosenFallback = p.r.CounterVec(
-		reporter.CounterOpts{
-			Name: "router_fallback_requests_total",
-			Help: "Number of times the router/ris combination was returned without an exact match of the agent ID.",
+			Name: "update_total",
+			Help: "Cumulative count of all updates received from ris instance for a given router.",
 		},
 		[]string{"ris", "router"},
 	)

@@ -25,11 +25,11 @@ func (p *Provider) Lookup(ctx context.Context, ip netip.Addr, nh netip.Addr, exp
 	if !p.active.Load() {
 		return LookupResult{}, nil
 	}
+	p.submitObserveRib(observeRIBRequest{
+		exporterAddress: exporterAddress,
+		ipv6: !ip.Unmap().Is4(),
+	})
 
-	// load rib for this router
-	if err := p.ObserveRIB(exporterAddress, !ip.Unmap().Is4()); err != nil {
-		return LookupResult{}, err
-	}
 	// TODO: expire peer when no lookup has been performed for a while
 	return p.rib.Lookup(ctx, ip, nh, exporterAddress)
 }

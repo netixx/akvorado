@@ -8,14 +8,15 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	pb "github.com/bio-routing/bio-rd/cmd/ris/api"
-	"github.com/bio-routing/bio-rd/route/api"
+	bnet "github.com/bio-routing/bio-rd/net"
+	"github.com/bio-routing/bio-rd/net/api"
+	routeapi "github.com/bio-routing/bio-rd/route/api"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/osrg/gobgp/v3/pkg/packet/bgp"
 	"google.golang.org/grpc"
@@ -23,6 +24,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	"gopkg.in/tomb.v2"
 
 	"akvorado/common/reporter"
@@ -45,6 +47,11 @@ type RISInstanceRuntime struct {
 	config RISInstance
 }
 
+type observeRIBRequest struct {
+	exporterAddress netip.Addr
+	ipv6 bool
+}
+
 // Provider represents the BioRIS routing provider.
 type Provider struct {
 	r      *reporter.Reporter
@@ -58,6 +65,9 @@ type Provider struct {
 	routers              map[netip.Addr][]*RISInstanceRuntime
 	active               atomic.Bool
 	observeSubscriptions map[string]pb.RoutingInformationService_ObserveRIBClient
+	observeRIBRequestChan chan observeRIBRequest
+	observeRequests map[string]struct{}
+	observeRequestsMu sync.RWMutex
 
 	rib *rib.Provider
 	mu  sync.RWMutex
@@ -86,6 +96,8 @@ func (configuration Configuration) New(r *reporter.Reporter, dependencies Depend
 		routers:              make(map[netip.Addr][]*RISInstanceRuntime),
 		rib:                  ribComponent,
 		observeSubscriptions: map[string]pb.RoutingInformationService_ObserveRIBClient{},
+		observeRIBRequestChan: make(chan observeRIBRequest),
+		observeRequests : map[string]struct{}{},
 	}
 	p.clientMetrics = grpc_prometheus.NewClientMetrics()
 	p.initMetrics()
@@ -126,6 +138,18 @@ func (p *Provider) Start() error {
 		}
 	})
 
+	p.t.Go(func() error {
+		for {
+			select {
+			case <- p.t.Dying():
+				return nil
+			case observeRequest := <- p.observeRIBRequestChan:
+				if err := p.observeRIB(observeRequest); err != nil {
+					p.r.Err(err).Msg("failed to observeRIB")
+				}
+			}
+		}
+	})
 	return p.rib.Start()
 }
 
@@ -144,6 +168,11 @@ func (p *Provider) Dial(config RISInstance) (*RISInstanceRuntime, error) {
 		grpc.WithUnaryInterceptor(p.clientMetrics.UnaryClientInterceptor()),
 		grpc.WithStreamInterceptor(p.clientMetrics.StreamClientInterceptor()),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: backoff}),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time: 10*time.Second,
+			Timeout: 1*time.Minute,
+			PermitWithoutStream: true,
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error while dialing RIS %s: %w", config.GRPCAddr, err)
@@ -198,8 +227,6 @@ func (p *Provider) Refresh(ctx context.Context) {
 			routers[routerAddress] = append(routers[routerAddress], p.instances[config.GRPCAddr])
 
 			p.metrics.knownRouters.WithLabelValues(config.GRPCAddr).Inc()
-			p.metrics.routerChosenAgentIDMatch.WithLabelValues(config.GRPCAddr, router.Address)
-			p.metrics.routerChosenFallback.WithLabelValues(config.GRPCAddr, router.Address)
 		}
 	}
 
@@ -210,144 +237,227 @@ func (p *Provider) Refresh(ctx context.Context) {
 
 // chooseRouter selects the router ID best suited for the given agent ip. It
 // returns router ID and RIS instance.
-func (p *Provider) chooseRouter(agent netip.Addr) (netip.Addr, *RISInstanceRuntime, error) {
-	var chosenRis *RISInstanceRuntime
-	chosenRouterID := netip.IPv4Unspecified()
-	exactMatch := false
-	// We try all routers
-	for r := range p.routers {
-		chosenRouterID = r
-		// If we find an exact match of router id and agent ip, we are done
-		if r == agent {
-			exactMatch = true
-			break
-		}
-		// If not, we are implicitly using the last router id we found
+func (p *Provider) chooseRouter(agent netip.Addr) (netip.Addr, []*RISInstanceRuntime, error) {
+	runtime, has := p.routers[agent]
+
+	if has {
+		return agent, runtime, nil
 	}
+	return agent, nil, errNoRouter
+	
+	// var chosenRis *RISInstanceRuntime
+	// chosenRouterID := netip.IPv4Unspecified()
+	// exactMatch := false
+	// // We try all routers
+	// for r := range p.routers {
+	// 	chosenRouterID = r
+	// 	// If we find an exact match of router id and agent ip, we are done
+	// 	if r == agent {
+	// 		exactMatch = true
+	// 		break
+	// 	}
+	// 	// If not, we are implicitly using the last router id we found
+	// }
 
-	// Verify that an actual router was found
-	if chosenRouterID.IsUnspecified() {
-		return chosenRouterID, nil, errNoRouter
-	}
+	// // Verify that an actual router was found
+	// if chosenRouterID.IsUnspecified() {
+	// 	return chosenRouterID, nil, errNoRouter
+	// }
 
-	// Randomly select a ris providing the router ID we selected earlier.
-	// In the future, we might also want to exclude currently unavailable ris instances
-	chosenRis = p.routers[chosenRouterID][rand.Intn(len(p.routers[chosenRouterID]))]
+	// // Randomly select a ris providing the router ID we selected earlier.
+	// // In the future, we might also want to exclude currently unavailable ris instances
+	// chosenRis = p.routers[chosenRouterID][rand.Intn(len(p.routers[chosenRouterID]))]
 
-	if chosenRis == nil || chosenRouterID.IsUnspecified() {
-		return chosenRouterID, nil, errNoInstance
-	}
+	// if chosenRis == nil || chosenRouterID.IsUnspecified() {
+	// 	return chosenRouterID, nil, errNoInstance
+	// }
 
-	// Update metrics with the chosen router/ris combination
-	if exactMatch {
-		p.metrics.routerChosenAgentIDMatch.WithLabelValues(chosenRis.config.GRPCAddr, chosenRouterID.Unmap().String()).Inc()
-	} else {
-		p.metrics.routerChosenFallback.WithLabelValues(chosenRis.config.GRPCAddr, chosenRouterID.Unmap().String()).Inc()
-	}
+	// // Update metrics with the chosen router/ris combination
+	// if exactMatch {
+	// 	p.metrics.routerChosenAgentIDMatch.WithLabelValues(chosenRis.config.GRPCAddr, chosenRouterID.Unmap().String()).Inc()
+	// } else {
+	// 	p.metrics.routerChosenFallback.WithLabelValues(chosenRis.config.GRPCAddr, chosenRouterID.Unmap().String()).Inc()
+	// }
 
-	return chosenRouterID, chosenRis, nil
+	// return chosenRouterID, chosenRis, nil
 }
 
-func (p *Provider) ObserveRIB(exporterAddress netip.Addr, ipv6 bool) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	afi := uint16(bgp.AFI_IP)
-	safi := uint8(bgp.SAFI_UNICAST)
-	subscriptionKey := fmt.Sprintf("%s-%d-%d", exporterAddress, afi, safi)
 
-	if _, has := p.observeSubscriptions[subscriptionKey]; has {
-		return nil
+func prefixFromPfx(pfx *api.Prefix) (netip.Prefix, error) {
+	prefix := bnet.NewPrefixFromProtoPrefix(pfx)
+	network, ok := netip.AddrFromSlice(prefix.Addr().Bytes())
+
+	if !ok {
+		return netip.Prefix{}, fmt.Errorf("invalid network address: %s", pfx.GetAddress())
 	}
+	return netip.PrefixFrom(network ,int(prefix.Len())), nil
+}
 
-	_, ris, err := p.chooseRouter(exporterAddress)
+func (r observeRIBRequest) key() string {
+	return fmt.Sprintf("%s-%d", r.exporterAddress, r.afisafi())
+}
+
+
+func (r observeRIBRequest) afisafi() pb.ObserveRIBRequest_AFISAFI {
+	if r.ipv6 {
+		return pb.ObserveRIBRequest_IPv6Unicast
+	}
+	return pb.ObserveRIBRequest_IPv4Unicast
+}
+
+func (p *Provider) submitObserveRib(observeRequest observeRIBRequest) {
+
+	p.observeRequestsMu.RLock()
+	_, has := p.observeRequests[observeRequest.key()]
+	p.observeRequestsMu.RUnlock()
+	if has {
+		return
+	}
+	p.observeRequestsMu.Lock()
+	p.observeRequests[observeRequest.key()] = struct{}{}
+	p.observeRequestsMu.Unlock()
+	p.observeRIBRequestChan <- observeRequest
+}
+
+func (p *Provider) observeRIB(observeRequest observeRIBRequest) error {
+	_, risInstances, err := p.chooseRouter(observeRequest.exporterAddress)
 	if err != nil {
 		return err
 	}
 
-	requestAfiSafi := pb.ObserveRIBRequest_IPv4Unicast
-	if ipv6 {
-		afi = uint16(bgp.AFI_IP6)
-		requestAfiSafi = pb.ObserveRIBRequest_IPv6Unicast
-	}
-
-	cli, err := ris.client.ObserveRIB(p.t.Context(context.Background()), &pb.ObserveRIBRequest{
-		Router:          exporterAddress.String(),
-		Afisafi:         requestAfiSafi,
-		AllowUnreadyRib: true,
-		VrfId:           ris.config.VRFId,
-		Vrf:             ris.config.VRF,
-	})
-
-	if err != nil {
-		return err
-	}
-	p.metrics.runningObserveRIB.WithLabelValues(ris.config.GRPCAddr).Add(1)
-
-	p.observeSubscriptions[subscriptionKey] = cli
-
-	exporterStr := exporterAddress.String()
-	p.rib.AddPeer(exporterAddress)
-	p.t.Go(func() error {
-		p.r.Info().Msgf("starting ObserveRIB subscription for %s", exporterStr)
-		defer func() {
-			p.metrics.runningObserveRIB.WithLabelValues(ris.config.GRPCAddr).Add(-1)
-			// TODO: clean rib after timeout when the subscription ends
-		}()
-		for {
-			select {
-			case <-p.t.Dying():
-				return cli.CloseSend()
-			default:
-			}
-			update, err := cli.Recv()
-			if err != nil {
-				return err
-			}
-			route := update.GetRoute()
-			prefix, err := netip.ParsePrefix(route.Pfx.Address.String())
-			if err != nil {
-				return err
-			}
-			p.metrics.streamedUpdates.WithLabelValues(ris.config.GRPCAddr, exporterStr).Inc()
-			for _, path := range route.Paths {
-				if path.GetType() != api.Path_BGP {
-					continue
-				}
-				bgpPath := path.BgpPath
-				nh, err := netip.ParseAddr(bgpPath.NextHop.String())
-				if err != nil {
-					return err
-				}
-				asPath := make([]uint32, len(bgpPath.AsPath))
-				for i, as := range bgpPath.AsPath {
-					// TODO: what to do with confed AS ?
-					asPath[i] = as.Asns[0]
-				}
-				largeCommunities := make([]bgp.LargeCommunity, len(bgpPath.LargeCommunities))
-				for i, comm := range bgpPath.LargeCommunities {
-					largeCommunities[i] = *bgp.NewLargeCommunity(comm.GlobalAdministrator, comm.DataPart1, comm.DataPart2)
-				}
-				attrs := rib.RouteAttributes{
-					ASPath:           asPath,
-					Communities:      bgpPath.Communities,
-					LargeCommunities: largeCommunities,
-					Plen:             uint8(prefix.Bits()),
-				}
-				p.rib.AddRoute(
-					exporterAddress,
-					afi,
-					safi,
-					rib.RD(0),
-					bgpPath.PathIdentifier,
-					prefix.Addr(),
-					prefix.Bits(),
-					attrs,
-					nh,
-				)
-			}
+	p.rib.AddPeer(observeRequest.exporterAddress)
+	// find the instance that has our RIB
+	for _, ris := range risInstances {
+		subscriptionKey := fmt.Sprintf("%s-%s", observeRequest.key(), ris.config.GRPCAddr)
+		p.mu.RLock()
+		if _, has := p.observeSubscriptions[subscriptionKey]; has {
+			p.mu.RUnlock()
+			continue
 		}
-	})
+		p.mu.RUnlock()
+		// not working
+		c := p.t.Context(context.Background())
+		cli, err := ris.client.ObserveRIB(c, &pb.ObserveRIBRequest{
+			Router:          observeRequest.exporterAddress.Unmap().String(),
+			Afisafi:         observeRequest.afisafi(),
+			AllowUnreadyRib: true,
+			VrfId:           ris.config.VRFId,
+			Vrf:             ris.config.VRF,
+		})
+
+		if err != nil {
+			p.r.Err(err).Msg("failed to start ObserveRIB query")
+			p.observeRequestsMu.Lock()
+			delete(p.observeRequests, observeRequest.key())
+			p.observeRequestsMu.Unlock()
+			continue
+		}
+
+		p.metrics.runningObserveRIB.WithLabelValues(ris.config.GRPCAddr).Add(1)
+		p.mu.Lock()
+		p.observeSubscriptions[subscriptionKey] = cli
+		p.mu.Unlock()
+
+		exporterStr := observeRequest.exporterAddress.Unmap().String()
+		afi := uint16(bgp.AFI_IP)
+	  safi := uint8(bgp.SAFI_UNICAST)
+
+		if observeRequest.ipv6 {
+			afi = uint16(bgp.AFI_IP6)
+		}
+		p.t.Go(func() error {
+			p.r.Info().Msgf("starting ObserveRIB subscription for %s, afi %d", exporterStr, afi)
+			defer func() {
+				p.mu.Lock()
+				delete(p.observeSubscriptions, subscriptionKey)
+				p.mu.Unlock()
+				// allow the subscription to restart
+				// TODO: better retry mecanism ??
+				p.observeRequestsMu.Lock()
+				delete(p.observeRequests, observeRequest.key())
+				p.observeRequestsMu.Unlock()
+				p.metrics.runningObserveRIB.WithLabelValues(ris.config.GRPCAddr).Add(-1)
+				// TODO: clean rib after timeout when the subscription ends
+			}()
+			for {
+				select {
+				case <-p.t.Dying():
+					p.r.Info().Msg("ObserveRIB: tomb dying")
+					return cli.CloseSend()
+				default:
+				}
+				update, err := cli.Recv()
+				if err != nil {
+					p.r.Err(err).Msg("error during ObserveRIB query")
+					return nil
+				}
+				processedUpdates, processedPaths := p.consumeRoute(update, observeRequest.exporterAddress, afi, safi)
+				p.metrics.streamedUpdates.WithLabelValues(ris.config.GRPCAddr, exporterStr).Add(float64(processedUpdates))
+				p.metrics.streamedPaths.WithLabelValues(ris.config.GRPCAddr, exporterStr).Add(float64(processedPaths))
+			}
+		})
+	}
 	return nil
+}
+
+func (p *Provider) consumeRoute(
+	update *pb.RIBUpdate,
+	exporterAddress netip.Addr,
+	afi uint16,
+	safi uint8,
+) (int, int) {
+	route := update.GetRoute()
+	if route == nil {
+		return 0, 0
+	}
+
+	prefix, err := prefixFromPfx(route.Pfx)
+	if err != nil {
+		p.r.Info().Msgf("ObserveRIB unable to parse prefix: %s", route.Pfx)
+		return 0, 0
+	}
+
+	pathCount := 0
+	for _, path := range route.Paths {
+		if path.GetType() != routeapi.Path_BGP {
+			continue
+		}
+		bgpPath := path.BgpPath
+		bNh := bnet.IPFromProtoIP(bgpPath.NextHop)
+		nh, ok := netip.AddrFromSlice(bNh.Bytes())
+		if !ok {
+			p.r.Info().Msgf("ObserveRIB unable to parse nexthop: %s", bgpPath.NextHop)
+			continue
+		}
+		asPath := make([]uint32, len(bgpPath.AsPath))
+		for i, as := range bgpPath.AsPath {
+			// TODO: what to do with confed AS ?
+			asPath[i] = as.Asns[0]
+		}
+		largeCommunities := make([]bgp.LargeCommunity, len(bgpPath.LargeCommunities))
+		for i, comm := range bgpPath.LargeCommunities {
+			largeCommunities[i] = *bgp.NewLargeCommunity(comm.GlobalAdministrator, comm.DataPart1, comm.DataPart2)
+		}
+		attrs := rib.RouteAttributes{
+			ASPath:           asPath,
+			Communities:      bgpPath.Communities,
+			LargeCommunities: largeCommunities,
+			Plen:             uint8(prefix.Bits()),
+		}
+		p.rib.AddRoute(
+			exporterAddress,
+			afi,
+			safi,
+			rib.RD(0),
+			bgpPath.PathIdentifier,
+			prefix.Addr(),
+			prefix.Bits(),
+			attrs,
+			nh,
+		)
+		pathCount += 1
+	}
+	return 1, pathCount
 }
 
 // Stop closes connection to ris
@@ -363,6 +473,7 @@ func (p *Provider) Stop() error {
 	if err := p.rib.Stop(); err != nil {
 		return err
 	}
+	close(p.observeRIBRequestChan)
 	p.r.Info().Msg("stopping BioRIS provider")
 	p.t.Kill(nil)
 	return p.t.Wait()

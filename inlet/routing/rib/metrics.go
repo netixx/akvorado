@@ -8,7 +8,6 @@ import "akvorado/common/reporter"
 type metrics struct {
 	peers                *reporter.GaugeVec
 	routes               *reporter.GaugeVec
-	ignoredNlri          *reporter.CounterVec
 	ignored              *reporter.CounterVec
 	locked               *reporter.SummaryVec
 	peerRemovalDone      *reporter.CounterVec
@@ -32,12 +31,12 @@ func (p *Provider) initMetrics() {
 		},
 		[]string{"exporter"},
 	)
-	p.metrics.ignoredNlri = p.r.CounterVec(
+	p.metrics.ignored = p.r.CounterVec(
 		reporter.CounterOpts{
-			Name: "ignored_nlri_total",
-			Help: "Number ignored MP NLRI received.",
+			Name: "ignored_updates_total",
+			Help: "Number of ignored BGP updates.",
 		},
-		[]string{"exporter", "type"},
+		[]string{"exporter", "reason", "error"},
 	)
 	p.metrics.locked = p.r.SummaryVec(
 		reporter.SummaryOpts{
