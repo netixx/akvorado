@@ -3,7 +3,10 @@
 
 package remotedatasourcefetcher
 
-import "akvorado/common/reporter"
+import (
+	"akvorado/common/reporter"
+	"sync"
+)
 
 type metrics struct {
 	remoteDataSourceUpdates *reporter.CounterVec
@@ -11,22 +14,25 @@ type metrics struct {
 	remoteDataSourceCount   *reporter.GaugeVec
 }
 
-func (c *Component[T]) initMetrics() {
-	c.metrics.remoteDataSourceUpdates = c.r.CounterVec(
+var initMetricsOnce sync.Once
+var componentMetrics = metrics{}
+
+func initMetrics(r *reporter.Reporter) {
+	componentMetrics.remoteDataSourceUpdates = r.CounterVec(
 		reporter.CounterOpts{
 			Name: "updates_total",
 			Help: "Number of successful updates for a remote data source",
 		},
 		[]string{"type", "source"},
 	)
-	c.metrics.remoteDataSourceErrors = c.r.CounterVec(
+	componentMetrics.remoteDataSourceErrors = r.CounterVec(
 		reporter.CounterOpts{
 			Name: "errors_total",
 			Help: "Number of failed updates for a remote data source",
 		},
 		[]string{"type", "source", "error"},
 	)
-	c.metrics.remoteDataSourceCount = c.r.GaugeVec(
+	componentMetrics.remoteDataSourceCount = r.GaugeVec(
 		reporter.GaugeOpts{
 			Name: "data_total",
 			Help: "Number of objects imported from a given source",
@@ -34,3 +40,4 @@ func (c *Component[T]) initMetrics() {
 		[]string{"type", "source"},
 	)
 }
+

@@ -31,7 +31,6 @@ type Component[T interface{}] struct {
 	provider    ProviderFunc
 	dataType    string
 	dataSources map[string]RemoteDataSource
-	metrics     metrics
 
 	DataSourcesReady chan bool // closed when all data sources are ready
 }
@@ -45,7 +44,9 @@ func New[T interface{}](r *reporter.Reporter, provider ProviderFunc, dataType st
 		dataSources:      dataSources,
 		DataSourcesReady: make(chan bool),
 	}
-	c.initMetrics()
+	initMetricsOnce.Do(func() {
+		initMetrics(r)
+	})
 	return &c, nil
 }
 
@@ -139,7 +140,7 @@ func (c *Component[T]) Start() error {
 		}
 
 		c.t.Go(func() error {
-			c.metrics.remoteDataSourceCount.WithLabelValues(c.dataType, name).Set(0)
+			componentMetrics.remoteDataSourceCount.WithLabelValues(c.dataType, name).Set(0)
 			newRetryTicker := func() *backoff.Ticker {
 				customBackoff := backoff.NewExponentialBackOff()
 				customBackoff.MaxElapsedTime = 0
@@ -173,10 +174,10 @@ func (c *Component[T]) Start() error {
 				count, err := c.provider(ctx, name, source)
 				cancel()
 				if err == nil {
-					c.metrics.remoteDataSourceUpdates.WithLabelValues(c.dataType, name).Inc()
-					c.metrics.remoteDataSourceCount.WithLabelValues(c.dataType, name).Set(float64(count))
+					componentMetrics.remoteDataSourceUpdates.WithLabelValues(c.dataType, name).Inc()
+					componentMetrics.remoteDataSourceCount.WithLabelValues(c.dataType, name).Set(float64(count))
 				} else {
-					c.metrics.remoteDataSourceErrors.WithLabelValues(c.dataType, name, err.Error()).Inc()
+					componentMetrics.remoteDataSourceErrors.WithLabelValues(c.dataType, name, err.Error()).Inc()
 				}
 				if err == nil && !ready {
 					ready = true
