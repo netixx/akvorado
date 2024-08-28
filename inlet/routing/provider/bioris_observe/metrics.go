@@ -6,11 +6,11 @@ package biorisobserve
 import "akvorado/common/reporter"
 
 type metrics struct {
-	risUp                    *reporter.GaugeVec
-	knownRouters             *reporter.GaugeVec
-	runningObserveRIB        *reporter.GaugeVec
-	streamedUpdates          *reporter.CounterVec
-	streamedPaths         	*reporter.CounterVec
+	risUp             *reporter.GaugeVec
+	knownRouters      *reporter.GaugeVec
+	runningObserveRIB *reporter.GaugeVec
+	streamedUpdates   *reporter.CounterVec
+	streamedPaths     *reporter.CounterVec
 }
 
 // initMetrics initialize the metrics for the BMP component.
@@ -46,8 +46,8 @@ func (p *Provider) initMetrics() {
 	)
 	p.metrics.streamedPaths = p.r.CounterVec(
 		reporter.CounterOpts{
-			Name: "update_total",
-			Help: "Cumulative count of all updates received from ris instance for a given router.",
+			Name: "update_paths_total",
+			Help: "Cumulative count of all paths received from ris instance for a given router (an update can contain multiple paths).",
 		},
 		[]string{"ris", "router"},
 	)
