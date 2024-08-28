@@ -2,7 +2,7 @@ package rib
 
 import (
 	"akvorado/common/daemon"
-	"akvorado/common/helpers/sync"
+	"sync"
 
 	"akvorado/common/reporter"
 

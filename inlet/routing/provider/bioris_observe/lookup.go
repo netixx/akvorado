@@ -27,7 +27,7 @@ func (p *Provider) Lookup(ctx context.Context, ip netip.Addr, nh netip.Addr, exp
 	}
 	p.submitObserveRib(observeRIBRequest{
 		exporterAddress: exporterAddress,
-		ipv6: !ip.Unmap().Is4(),
+		ipv6:            !ip.Unmap().Is4(),
 	})
 
 	// TODO: expire peer when no lookup has been performed for a while

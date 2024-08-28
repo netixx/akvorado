@@ -6,6 +6,7 @@ package biorisobserve
 import (
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	pb "github.com/bio-routing/bio-rd/cmd/ris/api"
-	bnet "github.com/bio-routing/bio-rd/net"
 	"github.com/bio-routing/bio-rd/net/api"
 	routeapi "github.com/bio-routing/bio-rd/route/api"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
@@ -49,7 +49,7 @@ type RISInstanceRuntime struct {
 
 type observeRIBRequest struct {
 	exporterAddress netip.Addr
-	ipv6 bool
+	ipv6            bool
 }
 
 // Provider represents the BioRIS routing provider.
@@ -59,15 +59,15 @@ type Provider struct {
 	t      tomb.Tomb
 	config Configuration
 
-	metrics              metrics
-	clientMetrics        *grpc_prometheus.ClientMetrics
-	instances            map[string]*RISInstanceRuntime
-	routers              map[netip.Addr][]*RISInstanceRuntime
-	active               atomic.Bool
-	observeSubscriptions map[string]pb.RoutingInformationService_ObserveRIBClient
+	metrics               metrics
+	clientMetrics         *grpc_prometheus.ClientMetrics
+	instances             map[string]*RISInstanceRuntime
+	routers               map[netip.Addr][]*RISInstanceRuntime
+	active                atomic.Bool
+	observeSubscriptions  map[string]pb.RoutingInformationService_ObserveRIBClient
 	observeRIBRequestChan chan observeRIBRequest
-	observeRequests map[string]struct{}
-	observeRequestsMu sync.RWMutex
+	observeRequests       map[string]struct{}
+	observeRequestsMu     sync.RWMutex
 
 	rib *rib.Provider
 	mu  sync.RWMutex
@@ -89,15 +89,15 @@ func (configuration Configuration) New(r *reporter.Reporter, dependencies Depend
 		return nil, err
 	}
 	p := Provider{
-		r:                    r,
-		d:                    &dependencies,
-		config:               configuration,
-		instances:            make(map[string]*RISInstanceRuntime),
-		routers:              make(map[netip.Addr][]*RISInstanceRuntime),
-		rib:                  ribComponent,
-		observeSubscriptions: map[string]pb.RoutingInformationService_ObserveRIBClient{},
+		r:                     r,
+		d:                     &dependencies,
+		config:                configuration,
+		instances:             make(map[string]*RISInstanceRuntime),
+		routers:               make(map[netip.Addr][]*RISInstanceRuntime),
+		rib:                   ribComponent,
+		observeSubscriptions:  map[string]pb.RoutingInformationService_ObserveRIBClient{},
 		observeRIBRequestChan: make(chan observeRIBRequest),
-		observeRequests : map[string]struct{}{},
+		observeRequests:       map[string]struct{}{},
 	}
 	p.clientMetrics = grpc_prometheus.NewClientMetrics()
 	p.initMetrics()
@@ -141,9 +141,9 @@ func (p *Provider) Start() error {
 	p.t.Go(func() error {
 		for {
 			select {
-			case <- p.t.Dying():
+			case <-p.t.Dying():
 				return nil
-			case observeRequest := <- p.observeRIBRequestChan:
+			case observeRequest := <-p.observeRIBRequestChan:
 				if err := p.observeRIB(observeRequest); err != nil {
 					p.r.Err(err).Msg("failed to observeRIB")
 				}
@@ -169,8 +169,8 @@ func (p *Provider) Dial(config RISInstance) (*RISInstanceRuntime, error) {
 		grpc.WithStreamInterceptor(p.clientMetrics.StreamClientInterceptor()),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: backoff}),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time: 10*time.Second,
-			Timeout: 1*time.Minute,
+			Time:                10 * time.Second,
+			Timeout:             1 * time.Minute,
 			PermitWithoutStream: true,
 		}),
 	)
@@ -244,7 +244,7 @@ func (p *Provider) chooseRouter(agent netip.Addr) (netip.Addr, []*RISInstanceRun
 		return agent, runtime, nil
 	}
 	return agent, nil, errNoRouter
-	
+
 	// var chosenRis *RISInstanceRuntime
 	// chosenRouterID := netip.IPv4Unspecified()
 	// exactMatch := false
@@ -282,21 +282,40 @@ func (p *Provider) chooseRouter(agent netip.Addr) (netip.Addr, []*RISInstanceRun
 	// return chosenRouterID, chosenRis, nil
 }
 
-
-func prefixFromPfx(pfx *api.Prefix) (netip.Prefix, error) {
-	prefix := bnet.NewPrefixFromProtoPrefix(pfx)
-	network, ok := netip.AddrFromSlice(prefix.Addr().Bytes())
-
-	if !ok {
-		return netip.Prefix{}, fmt.Errorf("invalid network address: %s", pfx.GetAddress())
+func PrefixFromProto(pfx *api.Prefix) (netip.Prefix, error) {
+	addr, err := AddrFromProto(pfx.Address)
+	if err != nil {
+		return netip.Prefix{}, err
 	}
-	return netip.PrefixFrom(network ,int(prefix.Len())), nil
+
+	return netip.PrefixFrom(addr, int(pfx.Length)), nil
+}
+
+func AddrFromProto(ip *api.IP) (netip.Addr, error) {
+	var ipArr []byte
+	// it's an ipv6
+	switch ip.Version {
+	case api.IP_IPv6:
+		ipArr = make([]byte, 16)
+		binary.BigEndian.PutUint64(ipArr[0:8], ip.Higher)
+		binary.BigEndian.PutUint64(ipArr[8:16], ip.Lower)
+	case api.IP_IPv4:
+		ipArr = make([]byte, 4)
+		binary.BigEndian.PutUint32(ipArr, uint32(ip.Lower))
+	default:
+		return netip.Addr{}, fmt.Errorf("undefined IP version: %v", ip.Version)
+	}
+	addr, ok := netip.AddrFromSlice(ipArr)
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("invalid IP: %s", ip.String())
+	}
+	// fmt.Printf("High:%d Low:%d ip:%s\n", pfx.Address.Higher, pfx.Address.Lower, addr)
+	return addr, nil
 }
 
 func (r observeRIBRequest) key() string {
 	return fmt.Sprintf("%s-%d", r.exporterAddress, r.afisafi())
 }
-
 
 func (r observeRIBRequest) afisafi() pb.ObserveRIBRequest_AFISAFI {
 	if r.ipv6 {
@@ -360,7 +379,7 @@ func (p *Provider) observeRIB(observeRequest observeRIBRequest) error {
 
 		exporterStr := observeRequest.exporterAddress.Unmap().String()
 		afi := uint16(bgp.AFI_IP)
-	  safi := uint8(bgp.SAFI_UNICAST)
+		safi := uint8(bgp.SAFI_UNICAST)
 
 		if observeRequest.ipv6 {
 			afi = uint16(bgp.AFI_IP6)
@@ -411,7 +430,7 @@ func (p *Provider) consumeRoute(
 		return 0, 0
 	}
 
-	prefix, err := prefixFromPfx(route.Pfx)
+	prefix, err := PrefixFromProto(route.Pfx)
 	if err != nil {
 		p.r.Info().Msgf("ObserveRIB unable to parse prefix: %s", route.Pfx)
 		return 0, 0
@@ -423,16 +442,24 @@ func (p *Provider) consumeRoute(
 			continue
 		}
 		bgpPath := path.BgpPath
-		bNh := bnet.IPFromProtoIP(bgpPath.NextHop)
-		nh, ok := netip.AddrFromSlice(bNh.Bytes())
-		if !ok {
+		if bgpPath.NextHop == nil {
+			p.r.Info().Msgf("ObserveRIB nil nh: %+v", bgpPath)
+			continue
+		}
+		nh, err := AddrFromProto(bgpPath.NextHop)
+		if err != nil {
 			p.r.Info().Msgf("ObserveRIB unable to parse nexthop: %s", bgpPath.NextHop)
 			continue
 		}
-		asPath := make([]uint32, len(bgpPath.AsPath))
-		for i, as := range bgpPath.AsPath {
-			// TODO: what to do with confed AS ?
-			asPath[i] = as.Asns[0]
+		asPathLen := 0
+		for _, asSeq := range bgpPath.AsPath {
+			asPathLen += len(asSeq.Asns)
+		}
+		asPath := make([]uint32, 0, asPathLen)
+		for _, asSequence := range bgpPath.AsPath {
+			for _, as := range asSequence.Asns {
+				asPath = append(asPath, as )
+			}
 		}
 		largeCommunities := make([]bgp.LargeCommunity, len(bgpPath.LargeCommunities))
 		for i, comm := range bgpPath.LargeCommunities {
