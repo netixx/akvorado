@@ -366,9 +366,6 @@ func (p *Provider) observeRIB(observeRequest observeRIBRequest) error {
 
 		if err != nil {
 			p.r.Err(err).Msg("failed to start ObserveRIB query")
-			p.observeRequestsMu.Lock()
-			delete(p.observeRequests, observeRequest.key())
-			p.observeRequestsMu.Unlock()
 			continue
 		}
 
@@ -416,6 +413,15 @@ func (p *Provider) observeRIB(observeRequest observeRIBRequest) error {
 			}
 		})
 	}
+
+	// retry in 60 seconds for this host
+	go func() {
+		<- time.After(60*time.Second)
+		p.observeRequestsMu.Lock()
+		defer p.observeRequestsMu.Unlock()
+		delete(p.observeRequests, observeRequest.key())
+	}()
+
 	return nil
 }
 
@@ -434,6 +440,24 @@ func (p *Provider) consumeRoute(
 	if err != nil {
 		p.r.Info().Msgf("ObserveRIB unable to parse prefix: %s", route.Pfx)
 		return 0, 0
+	}
+
+	// it's a withdraw
+	if !update.Advertisement {
+		pathCount := 0
+
+		for _, path := range route.Paths {
+			pathCount += p.rib.RemoveRoute(
+				exporterAddress,
+				afi,
+				safi,
+				rib.RD(0),
+				path.BgpPath.BgpIdentifier,
+				prefix.Addr(),
+				prefix.Bits(),
+			)
+		}
+		return 1, pathCount
 	}
 
 	pathCount := 0
