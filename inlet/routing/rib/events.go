@@ -4,7 +4,6 @@
 package rib
 
 import (
-	"net"
 	"net/netip"
 
 	"github.com/osrg/gobgp/v3/pkg/packet/bgp"
@@ -106,7 +105,7 @@ func (p *Provider) RemoveRoute(
 	safi uint8,
 	rd RD,
 	pathID uint32,
-	prefix net.IP,
+	prefix netip.Addr,
 	plen int,
 ) (cnt int) {
 	defer func() {
@@ -121,13 +120,12 @@ func (p *Provider) RemoveRoute(
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	pf, _ := netip.AddrFromSlice(prefix)
 	if nlriRef, ok := p.rib.nlris.Ref(nlri{
 		family: bgp.AfiSafiToRouteFamily(afi, safi),
 		rd:     rd,
 		path:   pathID,
 	}); ok {
-		return p.rib.removePrefix(pf, plen, route{
+		return p.rib.removePrefix(prefix, plen, route{
 			peer: pinfo.reference,
 			nlri: nlriRef,
 		})
